@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "capability_id": "dawn-commercial-signal-intelligence",
+  "source_repository": "thetondj-gif/world-intel-mcp",
+  "workstream_branch": "dawn/capability-foundry-wave-1",
+  "status": "RESEARCHED",
+  "purpose": "Expose a restricted commercial-signal subset for account prioritisation, meeting preparation and evidence-backed outreach.",
+  "integration_mode": "restricted-mcp-profile",
+  "read_write_classification": "read-only-external-write-local-evidence",
+  "required_credentials": [],
+  "network_access": "approved-public-data-sources-only",
+  "persistent_ports": [],
+  "risk_rating": "medium",
+  "allowed_operations": [
+    "company_enrichment",
+    "material_company_events",
+    "executive_change_signals",
+    "earnings_and_financial_pressure",
+    "cyber_incident_signals",
+    "government_contract_signals",
+    "supply_chain_signals",
+    "news_convergence"
+  ],
+  "prohibited_operations": [
+    "expose_all_upstream_tools_by_default",
+    "financial_trading",
+    "automated_outreach",
+    "persistent_collector_activation",
+    "production_runtime_activation"
+  ],
+  "dawn_v2_rebuild_separated": true,
+  "connected_to_dawn": false,
+  "production_verified": false
+}
