@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "signal_id": "SIG-COMPANY-001",
+  "account": "Example Manufacturing Ltd",
+  "signal_type": "company-event",
+  "observed_at": "2026-07-31T10:00:00Z",
+  "expires_at": "2026-08-31T10:00:00Z",
+  "source": {
+    "name": "Example company newsroom",
+    "url": "https://example.com/news/expansion",
+    "retrieved_at": "2026-07-31T10:05:00Z"
+  },
+  "summary": "The company announced a new operating site, creating a plausible need for systems and process support.",
+  "confidence": 0.82,
+  "recommended_use": "meeting-preparation",
+  "evidence_refs": ["https://example.com/news/expansion"],
+  "warnings": [],
+  "external_actions_performed": false
+}
