@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "signal_id": "bad",
+  "account": "Unknown",
+  "signal_type": "trading-signal",
+  "observed_at": "2025-01-01T00:00:00Z",
+  "source": {
+    "name": "Unverified source",
+    "url": "http://localhost/private",
+    "retrieved_at": "2024-12-01T00:00:00Z"
+  },
+  "summary": "Too short",
+  "confidence": 2,
+  "recommended_use": "automatic-outreach",
+  "external_actions_performed": true
+}
