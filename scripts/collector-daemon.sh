@@ -1,119 +1,168 @@
 #!/bin/bash
-# Intel Collector Daemon Control
+# World Intel Collector control for macOS.
 #
-# Manages the world-intel-mcp collector daemon that periodically
-# fetches global intelligence data across 30+ domains.
+# Installs a portable per-user LaunchAgent that runs one real collection cycle
+# daily. The installed plist is generated from the current checkout so no
+# machine-specific repository path is committed.
 #
 # Usage:
-#   collector-daemon.sh start|stop|restart|status|logs
+#   collector-daemon.sh start|stop|restart|status|run-now|logs
 
 set -euo pipefail
 
-PLIST_SRC="/Volumes/SSDRAID0/agentic-system/mcp-servers/world-intel-mcp/com.agentic.intel-collector.plist"
-PLIST="$HOME/Library/LaunchAgents/com.agentic.intel-collector.plist"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LABEL="com.agentic.intel-collector"
-LOG="/tmp/intel-collector.log"
-ERR_LOG="/tmp/intel-collector-error.log"
+PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+LOG_DIR="$HOME/.dawn/job-logs"
+LOG="$LOG_DIR/world-intel-collector.log"
+ERR_LOG="$LOG_DIR/world-intel-collector-error.log"
+PYTHON="${WORLD_INTEL_PYTHON:-$REPO_ROOT/.venv/bin/python}"
+HOUR="${WORLD_INTEL_DAILY_HOUR:-6}"
+MINUTE="${WORLD_INTEL_DAILY_MINUTE:-30}"
+DOMAIN="gui/$(id -u)"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
 NC='\033[0m'
+
+require_python() {
+    if [ ! -x "$PYTHON" ]; then
+        echo -e "${RED}Collector Python is not executable:${NC} $PYTHON" >&2
+        echo "Create the project .venv or set WORLD_INTEL_PYTHON to the intended interpreter." >&2
+        exit 1
+    fi
+}
+
+write_plist() {
+    require_python
+    mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
+    cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${PYTHON}</string>
+    <string>-m</string>
+    <string>world_intel_mcp.collector</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${REPO_ROOT}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>${HOUR}</integer>
+    <key>Minute</key><integer>${MINUTE}</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>${LOG}</string>
+  <key>StandardErrorPath</key>
+  <string>${ERR_LOG}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${REPO_ROOT}/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PYTHONPATH</key>
+    <string>${REPO_ROOT}/src</string>
+    <key>WORLD_INTEL_LOG_LEVEL</key>
+    <string>INFO</string>
+  </dict>
+</dict>
+</plist>
+EOF
+    plutil -lint "$PLIST" >/dev/null
+}
+
+is_loaded() {
+    launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1
+}
 
 case "${1:-help}" in
     start)
-        if launchctl list "$LABEL" &>/dev/null; then
-            echo -e "${YELLOW}Intel collector already running${NC}"
-            exit 0
+        write_plist
+        if is_loaded; then
+            launchctl bootout "$DOMAIN" "$PLIST" >/dev/null 2>&1 || true
         fi
-        if [ ! -f "$PLIST" ]; then
-            cp "$PLIST_SRC" "$PLIST"
-        fi
-        launchctl load "$PLIST"
-        sleep 1
-        if launchctl list "$LABEL" &>/dev/null; then
-            echo -e "${GREEN}Intel collector started${NC} (interval: 300s)"
-        else
-            echo -e "${RED}Intel collector failed to start. Check:${NC} $ERR_LOG"
-            exit 1
-        fi
+        launchctl bootstrap "$DOMAIN" "$PLIST"
+        echo -e "${GREEN}World Intel daily collector installed.${NC}"
+        echo "Schedule: $(printf '%02d:%02d' "$HOUR" "$MINUTE") local time"
+        echo "Repo: $REPO_ROOT"
+        echo "Python: $PYTHON"
         ;;
 
     stop)
-        if ! launchctl list "$LABEL" &>/dev/null; then
-            echo -e "${YELLOW}Intel collector not running${NC}"
-            exit 0
+        if is_loaded; then
+            launchctl bootout "$DOMAIN" "$PLIST"
+            echo -e "${GREEN}World Intel collector unloaded.${NC}"
+        else
+            echo -e "${YELLOW}World Intel collector is not loaded.${NC}"
         fi
-        launchctl unload "$PLIST"
-        echo -e "${GREEN}Intel collector stopped${NC}"
         ;;
 
     restart)
-        "$0" stop
-        sleep 2
+        "$0" stop || true
         "$0" start
         ;;
 
+    run-now)
+        require_python
+        mkdir -p "$LOG_DIR"
+        echo "Running one collection cycle from $REPO_ROOT"
+        (
+            cd "$REPO_ROOT"
+            PYTHONPATH="$REPO_ROOT/src" WORLD_INTEL_LOG_LEVEL="${WORLD_INTEL_LOG_LEVEL:-INFO}" \
+                "$PYTHON" -m world_intel_mcp.collector
+        ) 2>&1 | tee -a "$LOG"
+        ;;
+
     status)
-        echo "=== Intel Collector Status ==="
-        echo ""
-        if launchctl list "$LABEL" &>/dev/null; then
-            PID=$(launchctl list "$LABEL" 2>/dev/null | head -1 | awk '{print $1}')
-            echo -e "State: ${GREEN}RUNNING${NC} (PID: ${PID:-unknown})"
+        echo "=== World Intel Collector Status ==="
+        echo "Repo: $REPO_ROOT"
+        echo "Python: $PYTHON"
+        echo "Schedule: $(printf '%02d:%02d' "$HOUR" "$MINUTE") local time"
+        if is_loaded; then
+            echo -e "State: ${GREEN}LOADED${NC}"
+            launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -E 'state =|last exit code =|runs =' | head -10 || true
         else
-            echo -e "State: ${RED}STOPPED${NC}"
+            echo -e "State: ${RED}NOT LOADED${NC}"
         fi
-
-        # Log file info
         if [ -f "$LOG" ]; then
-            SIZE=$(du -h "$LOG" 2>/dev/null | awk '{print $1}')
-            LAST=$(tail -1 "$LOG" 2>/dev/null | head -c 80)
-            echo "Log size: $SIZE"
-            echo "Last line: $LAST"
+            echo "--- latest stdout ---"
+            tail -n 8 "$LOG"
         else
-            echo "Log: no output yet"
+            echo "No stdout log yet."
         fi
-
-        # Error log
-        if [ -f "$ERR_LOG" ] && [ -s "$ERR_LOG" ]; then
-            ERR_SIZE=$(du -h "$ERR_LOG" 2>/dev/null | awk '{print $1}')
-            echo -e "Errors: ${YELLOW}${ERR_SIZE}${NC} ($ERR_LOG)"
-        else
-            echo -e "Errors: ${GREEN}none${NC}"
+        if [ -s "$ERR_LOG" ]; then
+            echo "--- latest stderr ---"
+            tail -n 8 "$ERR_LOG"
         fi
         ;;
 
     logs)
-        MODE="${2:-stdout}"
-        case "$MODE" in
-            err|error|stderr)
-                if [ -f "$ERR_LOG" ]; then
-                    tail -f "$ERR_LOG"
-                else
-                    echo -e "${YELLOW}No error log yet: $ERR_LOG${NC}"
-                fi
-                ;;
-            *)
-                if [ -f "$LOG" ]; then
-                    tail -f "$LOG"
-                else
-                    echo -e "${YELLOW}No log file yet: $LOG${NC}"
-                fi
-                ;;
-        esac
+        if [ "${2:-stdout}" = "err" ] || [ "${2:-stdout}" = "error" ] || [ "${2:-stdout}" = "stderr" ]; then
+            touch "$ERR_LOG"
+            tail -f "$ERR_LOG"
+        else
+            touch "$LOG"
+            tail -f "$LOG"
+        fi
         ;;
 
     help|*)
-        echo "Intel Collector Daemon Control"
+        echo "World Intel Collector Control"
+        echo "Usage: $0 {start|stop|restart|status|run-now|logs}"
         echo ""
-        echo "Usage: $0 {start|stop|restart|status|logs}"
-        echo ""
-        echo "  start          Start the intel collector daemon"
-        echo "  stop           Stop the intel collector daemon"
-        echo "  restart        Restart the intel collector daemon"
-        echo "  status         Show daemon state and log info"
-        echo "  logs           Tail stdout log (follow mode)"
-        echo "  logs err       Tail stderr log (follow mode)"
+        echo "start    Install/reload the daily LaunchAgent using this checkout"
+        echo "stop     Unload the LaunchAgent"
+        echo "restart  Reinstall and reload the LaunchAgent"
+        echo "status   Show launchd state and latest evidence"
+        echo "run-now  Run one real collection cycle synchronously"
+        echo "logs     Follow stdout; use 'logs err' for stderr"
         ;;
 esac
